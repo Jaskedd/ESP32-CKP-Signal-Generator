@@ -7,16 +7,16 @@
 #include <driver/gpio.h>
 #include <stdio.h>
 #include "HD44780.h"
-#define BUTTON_UP     GPIO_NUM_23
-#define BUTTON_DOWN   GPIO_NUM_18
-#define BUTTON_CONFIRM GPIO_NUM_19
+#define BUTTON_UP     GPIO_NUM_34
+#define BUTTON_DOWN   GPIO_NUM_36
+#define BUTTON_CONFIRM GPIO_NUM_39
 
 typedef struct {
-    char syncName[15];
-    int totalTeeth;
-    int totalMissingTeeth;
-    int cmpTeeth[10];
-    int cmpCount;
+	char syncName[15];
+	int totalTeeth;
+	int totalMissingTeeth;
+	int cmpTeeth[10];
+	int cmpCount;
 } synchronism;
 
 extern int selectedSync;

@@ -31,4 +31,8 @@ typedef struct {
 	int cmpCount;
 } synchronism;
 
+void signalGeneratorStart(const synchronism* sync, int rpm);
+void signalGeneratorSetRPM(int rpm);
+void signalGeneratorStop(void);
+
 #endif // MAIN_H

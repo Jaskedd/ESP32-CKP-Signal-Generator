@@ -1,31 +1,12 @@
 #ifndef MENU_H
 #define MENU_H
 
-#include <stdio.h>
-#include <string.h> 
-#include <driver/i2c.h> 
-#include <driver/gpio.h>
-#include <stdio.h>
-#include "HD44780.h"
-#define BUTTON_UP     GPIO_NUM_34
-#define BUTTON_DOWN   GPIO_NUM_36
-#define BUTTON_CONFIRM GPIO_NUM_39
+#include <stdbool.h>
+#include "main.h"
 
-typedef struct {
-	char syncName[15];
-	int totalTeeth;
-	int totalMissingTeeth;
-	int cmpTeeth[10];
-	int cmpCount;
-} synchronism;
-
-extern int selectedSync;
-extern synchronism syncTable[];
-
-void setupButtons(void);
-
-void syncSelectMenu(void);
-
-int readButton(gpio_num_t button);
+void menuStart(void);
+const synchronism* menuGetSelectedSynchronism(void);
+int menuGetRPM(void);
+bool menuIsGeneratingSignal(void);
 
 #endif // MENU_H

@@ -1,3 +1,3 @@
-idf_component_register(SRCS "menu.c" "main.c"
+idf_component_register(SRCS "main.c" "menu.c"
                     PRIV_REQUIRES driver esp_adc
                     INCLUDE_DIRS "")

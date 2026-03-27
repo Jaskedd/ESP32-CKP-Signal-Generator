@@ -1,208 +1,105 @@
-#include <driver/gpio.h>
-#include <esp_adc/adc_oneshot.h>
-#include <rom/ets_sys.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <rom/ets_sys.h>
 #include <stdio.h>
-#include "sdkconfig.h"
-#include "HD44780.h"
+
+#include "main.h"
 #include "menu.h"
 
-#define RPM_GPIO ADC_CHANNEL_0
-#define CKP_POS_GPIO GPIO_NUM_13
-#define CKP_NEG_GPIO GPIO_NUM_12
-#define CMP_GPIO GPIO_NUM_25
-#define LCD_SDL GPIO_NUM_21
-#define LCD_SCL GPIO_NUM_22
+#define CKP_RAMP_STEPS 16
 
-// Custom Settings
-int minRPM = 600;
-int maxRPM = 10000;
-int delayToUpdateRPM = 300; // Delay to update RPM in ms
-
-synchronism syncTable[] = {
-	 {"VW 60-2", 60, 2, {14, 19, 27, 49, 57, 79, 104, 110}, 8},
-	 {"Fire 60-2", 60, 2, {8, 30, 38, 59, 68, 99}, 6},
-	 // Zetec 1.8 16V early/non-VCT: 36-1 crank with a single cam sync pulse.
-	 {"Zetec 36-1", 36, 1, {34, 35}, 2},
-	 {"Sync Test", 100, 4, {50, 51}, 2},
-	 {"", 0, 0, {0}, 0} // end indicator
+static const int ckpRamp[CKP_RAMP_STEPS] = {
+	0, 17, 34, 51,
+	68, 85, 102, 119,
+	136, 153, 170, 187,
+	204, 221, 238, 255
 };
 
-int selectedSync = 0;
-int rpm = 600;
-char displayMessage[16];
-bool generatingSignal;
+static void generateSignal(void* pvParameter);
 
-long map(long x, long in_min, long in_max, long out_min, long out_max);
+void app_main(void) {
+	const ledc_timer_config_t ledcTimer = {
+		.speed_mode = OUTPUT_LEDC_MODE,
+		.timer_num = OUTPUT_LEDC_TIMER,
+		.duty_resolution = OUTPUT_LEDC_RESOLUTION,
+		.freq_hz = OUTPUT_LEDC_FREQUENCY_HZ,
+		.clk_cfg = LEDC_USE_APB_CLK,
+	};
 
-void updateRPM(void* pvParameter);
-void displayRPM(void* pvParameter);
-void generateSignal(void* pvParameter);
-void startUpdateRPM();
-void startDisplayRPM();
-void startGenerateSignal();
-void startCheckForRestart();
+	const ledc_channel_config_t ledcChannels[] = {
+		{
+			.gpio_num = CKP_POS_GPIO,
+			.speed_mode = OUTPUT_LEDC_MODE,
+			.channel = CKP_POS_LEDC_CHANNEL,
+			.intr_type = LEDC_INTR_DISABLE,
+			.timer_sel = OUTPUT_LEDC_TIMER,
+			.duty = OUTPUT_DUTY_OFF,
+			.hpoint = 0,
+		},
+		{
+			.gpio_num = CMP_GPIO,
+			.speed_mode = OUTPUT_LEDC_MODE,
+			.channel = CMP_LEDC_CHANNEL,
+			.intr_type = LEDC_INTR_DISABLE,
+			.timer_sel = OUTPUT_LEDC_TIMER,
+			.duty = OUTPUT_DUTY_OFF,
+			.hpoint = 0,
+		},
+	};
 
-extern void app_main() {
-	// Init GPIO of output signal
-	gpio_set_direction(CKP_POS_GPIO, GPIO_MODE_OUTPUT);
-	gpio_set_direction(CKP_NEG_GPIO, GPIO_MODE_OUTPUT);
-	gpio_set_direction(CMP_GPIO, GPIO_MODE_OUTPUT);
-	gpio_set_level(CKP_POS_GPIO, 0);
-	gpio_set_level(CKP_NEG_GPIO, 1);
-	gpio_set_level(CMP_GPIO, 0);
+	ESP_ERROR_CHECK(ledc_timer_config(&ledcTimer));
 
-	//Init LCD display
-	LCD_init(0x3F, LCD_SDL, LCD_SCL, 16, 2);
-	LCD_clearScreen();
-
-	// Display menu and start tasks
-	syncSelectMenu();
-	generatingSignal = true;
-	startUpdateRPM();
-	startDisplayRPM();
-	startGenerateSignal();
-	startCheckForRestart();
-}
-
-void updateRPM(void* pvParameter) {
-	printf("UpdateRPM started\n");
-	int rpmPotValue = 0;
-	adc_oneshot_unit_handle_t rpmPotHandle;
-	adc_oneshot_unit_init_cfg_t rpmPotInitConfig = { .unit_id = ADC_UNIT_2 };
-	ESP_ERROR_CHECK(adc_oneshot_new_unit(&rpmPotInitConfig, &rpmPotHandle));
-
-	adc_oneshot_chan_cfg_t rpmPotChanConfig = { .bitwidth = ADC_BITWIDTH_12, .atten = ADC_ATTEN_DB_12 };
-	ESP_ERROR_CHECK(adc_oneshot_config_channel(rpmPotHandle, RPM_GPIO, &rpmPotChanConfig));
-
-	while (generatingSignal) {
-		ESP_ERROR_CHECK(adc_oneshot_read(rpmPotHandle, RPM_GPIO, &rpmPotValue));
-		rpm = map(rpmPotValue, 0, 4095, minRPM, maxRPM);
-		vTaskDelay(pdMS_TO_TICKS(delayToUpdateRPM));
+	for (int i = 0; i < sizeof(ledcChannels) / sizeof(ledcChannels[0]); i++) {
+		ESP_ERROR_CHECK(ledc_channel_config(&ledcChannels[i]));
 	}
-	printf("updateRPM task ending\n");
-	vTaskDelete(NULL);
+
+	SET_OUTPUT_DUTY(CKP_POS_LEDC_CHANNEL, OUTPUT_DUTY_MID);
+	SET_OUTPUT_DUTY(CMP_LEDC_CHANNEL, OUTPUT_DUTY_OFF);
+
+	menuStart();
+
+	xTaskCreatePinnedToCore(generateSignal, "generateSignal", 2048, NULL, 5, NULL, 0);
 }
 
-void displayRPM(void* pvParameter) {
-	printf("display RPM Started\n");
-	while (generatingSignal) {
-		LCD_home();
-		snprintf(displayMessage, sizeof(displayMessage), "RPM: %d       ", rpm);
-		LCD_writeStr(displayMessage);
-		vTaskDelay(pdMS_TO_TICKS(delayToUpdateRPM));
-	}
-	printf("displayRPM task ending\n");
-	vTaskDelete(NULL);
-}
-
-void generateSignal(void* pvParameter) {
-	printf("Started signal\n");
-	synchronism sync = syncTable[selectedSync];
+static void generateSignal(void* pvParameter) {
+	const synchronism sync = *menuGetSelectedSynchronism();
+	const int realTeeth = sync.totalTeeth - sync.totalMissingTeeth;
 	int currentTooth = 0;
 	int cmpState = 0;
 
-	while (generatingSignal) {
-		int oneMinuteinUs = 60000000;
-		int period = oneMinuteinUs / (rpm * sync.totalTeeth);  // Calculates the period of one tooth in µs
-		int realTeeth = sync.totalTeeth - sync.totalMissingTeeth;
+	printf("Started signal\n");
 
-		for (int ckpTooth = 0; ckpTooth < sync.totalTeeth; ckpTooth++) {
+	while (menuIsGeneratingSignal()) {
+		const int rpm = menuGetRPM();
+		const int period = 60000000 / (rpm * sync.totalTeeth);
+
+		for (int toothIndex = 0; toothIndex < sync.totalTeeth; toothIndex++) {
+			const int totalToothTime = (toothIndex < realTeeth) ? period : period * 2;
+			const int stepTime = totalToothTime / CKP_RAMP_STEPS;
+			int remainingTime = totalToothTime;
+
 			currentTooth++;
 
-			// Checks if the currentTooth is the cmp and change its state
 			for (int i = 0; i < sync.cmpCount; i++) {
 				if (currentTooth == sync.cmpTeeth[i]) {
 					cmpState = !cmpState;
-					gpio_set_level(CMP_GPIO, cmpState);
+					SET_OUTPUT_DUTY(CMP_LEDC_CHANNEL, cmpState ? OUTPUT_DUTY_ON : OUTPUT_DUTY_OFF);
 				}
 			}
 
-			// Generate 1 tooth of the CKP signal
-			if (ckpTooth < realTeeth) {
-				gpio_set_level(CKP_POS_GPIO, 1);
-				gpio_set_level(CKP_NEG_GPIO, 0);
-				ets_delay_us(period / 2);
-				gpio_set_level(CKP_POS_GPIO, 0);
-				gpio_set_level(CKP_NEG_GPIO, 1);
-				ets_delay_us(period / 2);
-			}
-			else {
-				gpio_set_level(CKP_POS_GPIO, 0);
-				gpio_set_level(CKP_NEG_GPIO, 0);
-				ets_delay_us(period);
+			for (int step = 0; step < CKP_RAMP_STEPS; step++) {
+				const int currentStepTime = (step == CKP_RAMP_STEPS - 1) ? remainingTime : stepTime;
+				SET_OUTPUT_DUTY(CKP_POS_LEDC_CHANNEL, ckpRamp[step]);
+				ets_delay_us(currentStepTime);
+				remainingTime -= currentStepTime;
 			}
 
-			// Reset the counter of the currentTooth every 2 cycle of the CKP signal
 			if (currentTooth >= sync.totalTeeth * 2) {
 				currentTooth = 0;
 			}
 		}
 	}
+
 	printf("generateSignal task ending\n");
 	vTaskDelete(NULL);
-}
-void checkForRestart(void* pvParameter) {
-	printf("Restart check task started\n");
-	while (generatingSignal) {
-		if (readButton(BUTTON_CONFIRM) || readButton(BUTTON_UP) || readButton(BUTTON_DOWN)) {
-			printf("Button pressed, restarting device...\n");
-			generatingSignal = false;
-			vTaskDelay(pdMS_TO_TICKS(250));
-			printf("Restarting device...\n");
-			esp_restart();
-		}
-		vTaskDelay(pdMS_TO_TICKS(250));
-	}
-}
-long map(long x, long in_min, long in_max, long out_min, long out_max) {
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
-void startUpdateRPM() {
-	xTaskCreatePinnedToCore(
-		updateRPM,     // Function to implement the task
-		"updateRPM",   // Name of the task
-		1024,      // Stack size in bytes
-		NULL,      // Task input parameter
-		5,         // Priority of the task
-		NULL,      // Task handle.
-		1          // Core where the task should run
-	);
-}
-
-void startDisplayRPM() {
-	xTaskCreatePinnedToCore(
-		displayRPM,     // Function to implement the task
-		"displayRPM",   // Name of the task
-		2048,      // Stack size in bytes
-		NULL,      // Task input parameter
-		5,         // Priority of the task
-		NULL,      // Task handle.
-		1          // Core where the task should run
-	);
-}
-
-void startGenerateSignal() {
-	xTaskCreatePinnedToCore(
-		generateSignal,     // Function to implement the task
-		"generateSignal",   // Name of the task
-		2048,      // Stack size in bytes
-		NULL,      // Task input parameter
-		5,         // Priority of the task
-		NULL,      // Task handle.
-		0          // Core where the task should run
-	);
-}
-void startCheckForRestart() {
-	xTaskCreatePinnedToCore(
-		checkForRestart,     // Function to implement the task
-		"checkForRestart",   // Name of the task
-		2048,      // Stack size in bytes
-		NULL,      // Task input parameter
-		5,         // Priority of the task
-		NULL,      // Task handle.
-		1          // Core where the task should run
-	);
 }

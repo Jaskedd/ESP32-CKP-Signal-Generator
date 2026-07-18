@@ -3,8 +3,8 @@
 
 #include "main.h"
 
-void menuStart(void);
-const synchronism* menuGetSelectedSynchronism(void);
-int menuGetRPM(void);
+void menuBegin(void);
+const synchronism* getTypeFromMenu(void);
+int getRpmFromMenu(void);
 
 #endif // MENU_H

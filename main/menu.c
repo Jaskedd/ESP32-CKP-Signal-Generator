@@ -17,11 +17,10 @@ static const gpio_num_t buttonConfirmGpio = GPIO_NUM_39;
 static const adc_channel_t rpmAdcChannel = ADC_CHANNEL_0;
 
 static const synchronism syncTable[] = {
-	{"Zetec 36-1", 36, 1, {34, 35}, 2},
-	{"VW 60-2", 60, 2, {14, 19, 27, 49, 57, 79, 104, 110}, 8},
-	{"Fire 60-2", 60, 2, {8, 30, 38, 59, 68, 99}, 6},
-	{"Sync Test", 100, 4, {50, 51}, 2},
-	{"", 0, 0, {0}, 0},
+	{"36-1", 36, 1},
+	{"60-2", 60, 2},
+	{"10-1", 10, 1},
+	{"", 0, 0},
 };
 
 static int selectedSyncIndex = 2;
@@ -32,15 +31,15 @@ static void updateRPM(void* pvParameter);
 static void displayRPM(void* pvParameter);
 static void checkForRestart(void* pvParameter);
 
-const synchronism* menuGetSelectedSynchronism(void) {
+const synchronism* getTypeFromMenu(void) {
 	return &syncTable[selectedSyncIndex];
 }
 
-int menuGetRPM(void) {
+int getRpmFromMenu(void) {
 	return currentRPM;
 }
 
-void menuStart(void) {
+void menuBegin(void) {
 	int selectedIndex = 0;
 	int syncCount = 0;
 	bool menuActive = true;
@@ -148,7 +147,6 @@ static void checkForRestart(void* pvParameter) {
 	while (generatingSignal) {
 		if (!gpio_get_level(buttonConfirmGpio) || !gpio_get_level(buttonUpGpio) || !gpio_get_level(buttonDownGpio)) {
 			generatingSignal = false;
-			signalGeneratorStop();
 			vTaskDelay(pdMS_TO_TICKS(250));
 			esp_restart();
 		}

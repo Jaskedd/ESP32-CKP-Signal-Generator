@@ -17,9 +17,9 @@ static const gpio_num_t buttonConfirmGpio = GPIO_NUM_39;
 static const adc_channel_t rpmAdcChannel = ADC_CHANNEL_0;
 
 static const synchronism syncTable[] = {
-	{"36-1", 36, 1},
-	{"60-2", 60, 2},
-	{"10-1", 10, 1},
+	{"Bosch 60-2 114", 60, 2},
+	{"Ford 36-1   80", 36, 1},
+	{"Toyo 36-2   80", 36, 1},
 	{"", 0, 0},
 };
 
@@ -31,15 +31,15 @@ static void updateRPM(void* pvParameter);
 static void displayRPM(void* pvParameter);
 static void checkForRestart(void* pvParameter);
 
-const synchronism* getTypeFromMenu(void) {
+const synchronism* menuGetSelectedSynchronism(void) {
 	return &syncTable[selectedSyncIndex];
 }
 
-int getRpmFromMenu(void) {
+int menuGetRPM(void) {
 	return currentRPM;
 }
 
-void menuBegin(void) {
+void menuStart(void) {
 	int selectedIndex = 0;
 	int syncCount = 0;
 	bool menuActive = true;
@@ -120,8 +120,8 @@ static void updateRPM(void* pvParameter) {
 
 	while (generatingSignal) {
 		ESP_ERROR_CHECK(adc_oneshot_read(rpmPotHandle, rpmAdcChannel, &rpmPotValue));
-		currentRPM = (rpmPotValue * (10000 - 600) / 4095) + 600;
-		signalGeneratorSetRPM(currentRPM);
+		currentRPM = (rpmPotValue * (7000 - 100) / 4095) + 100;
+		setRpm(currentRPM);
 		vTaskDelay(pdMS_TO_TICKS(300));
 	}
 	vTaskDelete(NULL);
@@ -143,14 +143,13 @@ static void displayRPM(void* pvParameter) {
 }
 
 static void checkForRestart(void* pvParameter) {
-
 	while (generatingSignal) {
 		if (!gpio_get_level(buttonConfirmGpio) || !gpio_get_level(buttonUpGpio) || !gpio_get_level(buttonDownGpio)) {
 			generatingSignal = false;
+			SET_OUTPUT_DUTY(CKP_POS_LEDC_CHANNEL, OUTPUT_DUTY_MID);
 			vTaskDelay(pdMS_TO_TICKS(250));
 			esp_restart();
 		}
-
 		vTaskDelay(pdMS_TO_TICKS(250));
 	}
 }

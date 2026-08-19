@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where idf.py)",
+      "Bash(where idf.py.exe)"
+    ]
+  }
+}

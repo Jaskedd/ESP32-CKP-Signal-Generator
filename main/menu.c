@@ -120,7 +120,7 @@ static void updateRPM(void* pvParameter) {
 
 	while (generatingSignal) {
 		ESP_ERROR_CHECK(adc_oneshot_read(rpmPotHandle, rpmAdcChannel, &rpmPotValue));
-		currentRPM = (rpmPotValue * (7000 - 600) / 4095) + 600;
+		currentRPM = (rpmPotValue * (7000 - 100) / 4095) + 100;
 		setRpm(currentRPM);
 		vTaskDelay(pdMS_TO_TICKS(300));
 	}
